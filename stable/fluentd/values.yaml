@@ -54,7 +54,9 @@ service:
     - name: "monitor-agent"
       protocol: TCP
       containerPort: 24226
-
+    - name: "fluentd-kaudit"
+      protocol: TCP
+      containerPort: 24225
 metrics:
   enabled: false
   service:
