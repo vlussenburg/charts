@@ -4,16 +4,16 @@
 replicaCount: 1
 
 image:
-  repository: gcr.io/google-containers/fluentd-elasticsearch
-  tag: v2.4.0
+  repository: docker.io/alcide/kaudit-fluentd
+  tag: latest
   pullPolicy: IfNotPresent
   # pullSecrets:
   #   - secret1
   #   - secret2
 
 output:
-  host: elasticsearch-client.default.svc.cluster.local
-  port: 9200
+  host: kaudit-openshift-kaudit.alcide-kaudit.svc.cluster.local/audit-sink
+  port: 443
   scheme: http
   sslVersion: TLSv1
   buffer_chunk_limit: 2M
@@ -102,58 +102,64 @@ configMaps:
     <match fluentd.**>
       @type null
     </match>
-
     # Used for health checking
     <source>
       @type http
       port 9880
       bind 0.0.0.0
     </source>
-
     # Emits internal metrics to every minute, and also exposes them on port
     # 24220. Useful for determining if an output plugin is retryring/erroring,
     # or determining the buffer queue length.
     <source>
       @type monitor_agent
       bind 0.0.0.0
-      port 24220
+      port 24226
       tag fluentd.monitor.metrics
     </source>
-  system.conf: |-
+  system.conf: |
     <system>
+      log_level debug
       root_dir /tmp/fluentd-buffers/
     </system>
   forward-input.conf: |
     <source>
       @type forward
-      port 24224
+      port 24225
       bind 0.0.0.0
+      <parse>
+      @type json
+      time_format %Y-%m-%dT%H:%M:%S.%NZ
+      </parse>
     </source>
-  output.conf: |
-    <match **>
-      @id elasticsearch
-      @type elasticsearch
-      @log_level info
-      include_tag_key true
-      # Replace with the host/port to your Elasticsearch cluster.
-      host "#{ENV['OUTPUT_HOST']}"
-      port "#{ENV['OUTPUT_PORT']}"
-      scheme "#{ENV['OUTPUT_SCHEME']}"
-      ssl_version "#{ENV['OUTPUT_SSL_VERSION']}"
-      logstash_format true
+  forward-k8s-audit.log.conf: |
+    <match k8s-audit.log>
+    @type copy
+      <store>
+        @type stdout
+      </store>
+      <store>
+        @type http
+        endpoint https://kaudit-openshift-kaudit.alcide-kaudit.svc.cluster.local/auditsink
+        content_type application/json
+        tls_verify_mode none
+        <format>
+        @type json
+        </format>
       <buffer>
-        @type file
-        path /var/log/fluentd-buffers/kubernetes.system.buffer
-        flush_mode interval
+        flush_at_shutdown true
+        flush_mode immediate
+        #flush_interval 30s
+        flush_thread_count 8
+        flush_thread_interval 10.0
+        flush_thread_burst_interval 1.0
+        retry_forever true
         retry_type exponential_backoff
-        flush_thread_count 2
-        flush_interval 5s
-        retry_forever
-        retry_max_interval 30
-        chunk_limit_size "#{ENV['OUTPUT_BUFFER_CHUNK_LIMIT']}"
-        queue_limit_length "#{ENV['OUTPUT_BUFFER_QUEUE_LIMIT']}"
-        overflow_action block
+        chunk_limit_size 0.5MB
+        #timekey      1h # chunks per hours ("3600" also available)
+        #timekey_wait 5m # 5mins delay for flush ("300" also available)
       </buffer>
+      </store>
     </match>
 
 resources: {}
