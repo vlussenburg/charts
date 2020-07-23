@@ -53,7 +53,7 @@ service:
   ports:
     - name: "monitor-agent"
       protocol: TCP
-      containerPort: 24220
+      containerPort: 24226
 
 metrics:
   enabled: false
